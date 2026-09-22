@@ -11,6 +11,7 @@ from .credential_store import CredentialStore
 from .exceptions import EndpointNotAvailableError
 from .exceptions import RenaultException
 from .kamereon import ACCOUNT_ENDPOINT_ROOT
+from .kamereon import helpers
 from .kamereon import models
 from .kamereon import schemas
 from .renault_session import RenaultSession
@@ -245,6 +246,44 @@ class RenaultVehicle:
             models.KamereonVehicleChargingSettingsData,
             response.get_attributes(schemas.KamereonVehicleChargingSettingsDataSchema),
         )
+
+    async def get_normalized_charge_schedules(self) -> list[models.ChargeSchedule]:
+        """Get vehicle charge schedules, on either the KCA or KCM backend.
+
+        No vehicle model maps both `charging-settings` and `charge-schedule`
+        at once, so this tries the older `charging-settings` endpoint first
+        and falls back to the KCM `charge-schedule` endpoint (Scenic
+        E-Tech, R5, R4, Alpine A290, Master E-Tech, Rafale) when that one
+        isn't mapped for this model, normalizing either response into the
+        same ChargeSchedule list so callers don't need to know which
+        backend a given vehicle is on.
+
+        Zoe phase 1 has yet a third shape (the old KCA `charge-schedule`
+        "calendar" endpoint, `mode="default"`) that isn't normalized here;
+        it raises EndpointNotAvailableError like any other unsupported
+        model, same as before this method existed.
+        """
+        try:
+            charging_settings = await self.get_charging_settings()
+        except EndpointNotAvailableError:
+            pass
+        else:
+            return charging_settings.schedules or []
+
+        try:
+            endpoint_definition = await self.get_endpoint_definition("charge-schedule")
+        except EndpointNotAvailableError:
+            endpoint_definition = None
+
+        if (
+            endpoint_definition is not None
+            and endpoint_definition.mode == "kcm-settings"
+        ):
+            raw_settings = await self.get_charge_schedule()
+            return [helpers.charge_schedule_from_kcm_settings(raw_settings)]
+
+        details = await self.get_details()
+        raise EndpointNotAvailableError("charging-settings", details.get_model_code())
 
     async def get_cockpit(self) -> models.KamereonVehicleCockpitData:
         """Get vehicle cockpit."""

@@ -264,6 +264,72 @@ async def test_get_charge_schedule_kcm(
 
 
 @pytest.mark.asyncio
+async def test_get_normalized_charge_schedules_kca(
+    vehicle: RenaultVehicle, mocked_responses: aiointercept
+) -> None:
+    """Returns charging-settings' schedules as-is on KCA vehicles."""
+    fixtures.inject_get_vehicle_details(mocked_responses, "megane_e-tech.2.json")
+    fixtures.inject_get_charging_settings(mocked_responses, "single")
+
+    schedules = await vehicle.get_normalized_charge_schedules()
+
+    assert len(schedules) == 1
+    assert schedules[0].id == 1
+    assert schedules[0].activated is True
+    assert schedules[0].monday is not None
+    assert schedules[0].monday.startTime == "T12:00Z"
+    assert schedules[0].monday.duration == 15
+
+
+@pytest.mark.asyncio
+async def test_get_normalized_charge_schedules_kcm(
+    vehicle: RenaultVehicle, mocked_responses: aiointercept
+) -> None:
+    """Normalizes the KCM response on KCM-only vehicles."""
+    fixtures.inject_get_vehicle_details(mocked_responses, "renault_5.1.json")
+    fixtures.inject_get_ev_settings(mocked_responses, "single.active")
+
+    schedules = await vehicle.get_normalized_charge_schedules()
+
+    assert len(schedules) == 1
+    schedule = schedules[0]
+    assert schedule.id == 1
+    assert schedule.activated is True
+    assert schedule.monday is not None
+    assert schedule.monday.startTime == "T00:00Z"
+    assert schedule.monday.duration == 9000
+
+
+@pytest.mark.asyncio
+async def test_get_normalized_charge_schedules_kcm_no_programs(
+    vehicle: RenaultVehicle, mocked_responses: aiointercept
+) -> None:
+    """Returns an empty, unactivated schedule when no programs exist."""
+    fixtures.inject_get_vehicle_details(mocked_responses, "renault_5.1.json")
+    fixtures.inject_get_ev_settings(mocked_responses, "empty")
+
+    schedules = await vehicle.get_normalized_charge_schedules()
+
+    assert len(schedules) == 1
+    assert schedules[0].activated is False
+    assert schedules[0].monday is None
+
+
+@pytest.mark.asyncio
+async def test_get_normalized_charge_schedules_neither_endpoint(
+    vehicle: RenaultVehicle, mocked_responses: aiointercept
+) -> None:
+    """A model with neither schedule endpoint raises EndpointNotAvailableError."""
+    fixtures.inject_get_vehicle_details(mocked_responses, "espace_XHN1ML.1.json")
+
+    with pytest.raises(
+        EndpointNotAvailableError,
+        match=f"{EndpointNotAvailableError('charging-settings', 'XHN1ML')}",
+    ):
+        await vehicle.get_normalized_charge_schedules()
+
+
+@pytest.mark.asyncio
 async def test_get_notification_settings(
     vehicle: RenaultVehicle, mocked_responses: aiointercept
 ) -> None:
