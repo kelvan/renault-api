@@ -127,9 +127,10 @@ def charge_schedule_from_kcm_settings(
     Its shape doesn't map onto ChargeSchedule field-for-field: it has one
     program per departure time with per-weekday boolean flags, rather than
     an independent start time and duration for each day. Only the first
-    CHARGE-type program is used, since ChargeSchedule has no way to
-    represent more than one time slot per week; `id` is synthesized as 1,
-    since KCM programs carry none.
+    charging program (`programType` "CHARGE" or "CHARGE_AND_PRECONDITIONING"
+    — both charge the car, seen in real responses) is used, since
+    ChargeSchedule has no way to represent more than one time slot per
+    week; `id` is synthesized as 1, since KCM programs carry none.
 
     `programDepartureTime` is a ready-by time, not a charge start time, and
     there's no reliable way to derive one from it (it depends on battery
@@ -140,7 +141,7 @@ def charge_schedule_from_kcm_settings(
     charge_programs = [
         program
         for program in settings.get("programs") or []
-        if program.get("programType") == "CHARGE"
+        if (program.get("programType") or "").startswith("CHARGE")
     ]
     schedule = models.ChargeSchedule(
         raw_data=settings,

@@ -108,6 +108,22 @@ def test_charge_schedule_from_kcm_settings_ignores_non_charge_programs() -> None
         assert getattr(schedule, day) is None
 
 
+def test_charge_schedule_from_kcm_settings_charge_and_preconditioning() -> None:
+    """A CHARGE_AND_PRECONDITIONING program still charges the car.
+
+    Real responses use this type (not plain "CHARGE") whenever
+    preconditioning is scheduled alongside charging, so it must be
+    recognized as a charging program too.
+    """
+    settings = _kcm_settings()
+    settings["programs"][0]["programType"] = "CHARGE_AND_PRECONDITIONING"
+
+    schedule = charge_schedule_from_kcm_settings(settings)
+
+    assert schedule.activated is True
+    assert schedule.monday is not None
+
+
 def test_charge_schedule_from_kcm_settings_no_programs() -> None:
     """No programs at all yields an empty, unactivated schedule."""
     schedule = charge_schedule_from_kcm_settings(_kcm_settings(programs=[]))
