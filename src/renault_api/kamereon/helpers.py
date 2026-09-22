@@ -117,6 +117,70 @@ def create_charge_schedule(
     return schedule
 
 
+def charge_schedule_from_kcm_settings(
+    settings: dict[str, Any],
+) -> models.ChargeSchedule:
+    """Normalize a KCM `ev/settings` response into a ChargeSchedule.
+
+    KCM-only vehicles (mode "kcm-settings") have no `charging-settings`
+    endpoint; `get_charge_schedule()` returns this raw response instead.
+    Its shape doesn't map onto ChargeSchedule field-for-field: it has one
+    program per departure time with per-weekday boolean flags, rather than
+    an independent start time and duration for each day. Only the first
+    CHARGE-type program is used, since ChargeSchedule has no way to
+    represent more than one time slot per week; `id` is synthesized as 1,
+    since KCM programs carry none.
+
+    `programDepartureTime` is a ready-by time, not a charge start time, and
+    there's no reliable way to derive one from it (it depends on battery
+    state). The response's own `chargeTimeStart`/`chargeDuration` already
+    give the corresponding start and duration, so those are used directly
+    instead of back-computing from the departure time.
+    """
+    charge_programs = [
+        program
+        for program in settings.get("programs") or []
+        if program.get("programType") == "CHARGE"
+    ]
+    schedule = models.ChargeSchedule(
+        raw_data=settings,
+        id=1,
+        activated=False,
+        monday=None,
+        tuesday=None,
+        wednesday=None,
+        thursday=None,
+        friday=None,
+        saturday=None,
+        sunday=None,
+    )
+    if not charge_programs:
+        return schedule
+
+    program = charge_programs[0]
+    schedule.activated = bool(program.get("programActivationStatus"))
+
+    start_time = _kcm_time_to_charge_day_start(settings.get("chargeTimeStart"))
+    duration = settings.get("chargeDuration")
+    day_schedule = models.ChargeDaySchedule(
+        raw_data=program, startTime=start_time, duration=duration
+    )
+    for day in DAYS_OF_WEEK:
+        flag = f"programActivation{day.capitalize()}"
+        if program.get(flag):
+            setattr(schedule, day, day_schedule)
+
+    return schedule
+
+
+def _kcm_time_to_charge_day_start(hhmm: str | None) -> str | None:
+    """Convert a KCM `HH:MM` time into ChargeDaySchedule's `Thh:mmZ` format."""
+    if not hhmm:
+        return None
+    hours, minutes = hhmm.split(":")[:2]
+    return f"T{int(hours):02d}:{int(minutes):02d}Z"
+
+
 def create_hvac_schedule(
     settings: dict[str, Any],
 ) -> models.HvacSchedule:
